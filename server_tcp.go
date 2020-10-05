@@ -9,8 +9,8 @@ import (
 	"time"
 )
 
-func main(){
-	
+func main() {
+
 	args := os.Args
 
 	if len(args) == 1 {
@@ -26,6 +26,9 @@ func main(){
 	defer l.Close()
 
 	c, err := l.Accept()
+
+	defer c.Close()
+
 	if err != nil {
 		fmt.Println(err)
 		return
@@ -45,6 +48,6 @@ func main(){
 		fmt.Print("->", string(netData))
 		t := time.Now()
 		myTime := t.Format(time.RFC3339) + "\n"
-        c.Write([]byte(myTime))
+		c.Write([]byte(myTime))
 	}
 }

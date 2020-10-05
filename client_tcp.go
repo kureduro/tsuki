@@ -19,23 +19,29 @@ func main() {
 
 	connect := args[1]
 	c, err := net.Dial("tcp", connect)
-
+	defer c.Close()
 	if err != nil {
 		fmt.Println(err)
 		return
-
 	}
 
+	reader := bufio.NewReader(os.Stdin)
 	for {
-		reader := bufio.NewReader(os.Stdin)
-
 		fmt.Print(">> ")
-		text, _ := reader.ReadString('\n')
+		text, err := reader.ReadString('\n')
+		if err != nil {
+			fmt.Print(err)
+			return
+		}
 		fmt.Fprintf(c, text+"\n")
 
-		message, _ := bufio.NewReader(c).ReadString('\n')
+		message, err := bufio.NewReader(c).ReadString('\n')
+		if err != nil {
+			fmt.Println(err)
+			return
+		}
 		fmt.Print("->: " + message)
-		if strings.TrimSpace(string(text)) == "STOP" {
+		if strings.TrimSpace(string(text)) == "stop" {
 			fmt.Println("TCP client is stopping.....")
 			return
 
