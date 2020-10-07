@@ -13,7 +13,7 @@ func main() {
 
 	args := os.Args
 	if len(args) == 1 {
-		fmt.Println("please provide host:port")
+		fmt.Println("please provide parameters in format host:port")
 		return
 	}
 
@@ -21,8 +21,10 @@ func main() {
 	c, err := net.Dial("tcp", connect)
 	defer c.Close()
 	if err != nil {
-		fmt.Println(err)
+		fmt.Println("Error while trying to connect to server with NAME:", err)
 		return
+	} else {
+		fmt.Println("Connected successfuly")
 	}
 
 	reader := bufio.NewReader(os.Stdin)
@@ -30,21 +32,23 @@ func main() {
 		fmt.Print(">> ")
 		text, err := reader.ReadString('\n')
 		if err != nil {
-			fmt.Print(err)
+			fmt.Print("Error while reading the message with NAME:", err)
 			return
 		}
+
+		// add the message to the buffer
 		fmt.Fprintf(c, text+"\n")
 
 		message, err := bufio.NewReader(c).ReadString('\n')
-		if err != nil {
-			fmt.Println(err)
+
+		if err != nil && strings.TrimSpace(string(text)) != "STOP" {
+			fmt.Println("Error sending the message with NAME:", err)
 			return
+		}	
+		if strings.TrimSpace(string(text)) == "STOP" {
+			fmt.Println("TCP client is stopping.....")
+			return	
 		}
 		fmt.Print("->: " + message)
-		if strings.TrimSpace(string(text)) == "stop" {
-			fmt.Println("TCP client is stopping.....")
-			return
-
-		}
 	}
 }

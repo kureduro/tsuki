@@ -20,8 +20,10 @@ func main() {
 	port := ":" + args[1]
 	l, err := net.Listen("tcp", port)
 	if err != nil {
-		fmt.Println(err)
+		fmt.Println("ERROR while trying to listen on port", args[1], " with NAME:", err)
 		return
+	} else {
+		fmt.Println("Listening on port", args[1])
 	}
 	defer l.Close()
 
@@ -30,19 +32,19 @@ func main() {
 	defer c.Close()
 
 	if err != nil {
-		fmt.Println(err)
+		fmt.Println("Error while accepting the connection from client with NAME:", err)
 		return
 	}
 
 	for {
 		netData, err := bufio.NewReader(c).ReadString('\n')
 		if err != nil {
-			fmt.Println(err)
+			fmt.Println("Error while reading data from client with NAME:", err)
 			return
 		}
 
 		if strings.TrimSpace(string(netData)) == "STOP" {
-			fmt.Println("exiting...")
+			fmt.Println("Exiting...")
 			return
 		}
 		fmt.Print("->", string(netData))
