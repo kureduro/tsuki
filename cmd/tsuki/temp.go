@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"encoding/json"
+	"E:/Third Year/Distirbuted Systems/tsuki/cmd/tsuki"
 )
 
 type Chunk struct {
@@ -21,6 +22,6 @@ func main() {
 	data := downloadRequestAns{}
 
 	json.Unmarshal([]byte(s), &data)
-	
+
 	fmt.Printf("status is: %s", data.Status)
 }
