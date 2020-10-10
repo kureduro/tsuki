@@ -8,7 +8,7 @@ import (
 )
 func help() {
     // TODO print a list of instructions (maybe from a file would be more elegant)
-    fmt.Println("exit : leave the program")
+    fmt.Println("exit : leave the program") 
 }
 
 func download(parameters []string) {
