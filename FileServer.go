@@ -376,6 +376,7 @@ func (s *FileServer) ReceiveChunk(w http.ResponseWriter, r *http.Request, id, to
 
     if err != nil {
         w.WriteHeader(http.StatusInternalServerError)
+        log.Printf("internal error: %v", err)
         return
     }
 
@@ -383,4 +384,6 @@ func (s *FileServer) ReceiveChunk(w http.ResponseWriter, r *http.Request, id, to
 
     s.nsConn.ReceivedChunk(id)
     w.WriteHeader(http.StatusOK)
+
+    log.Printf("Chunk WRITE request SUCCESS: id=%s, token=%s", id, token)
 }

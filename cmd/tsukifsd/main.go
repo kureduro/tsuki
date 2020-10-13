@@ -14,11 +14,12 @@ import (
 )
 
 var port int
-var ns string
+var ns, dbDir string
 
 func init() {
     flag.IntVar(&port, "port", 7000, "port for clients")
     flag.StringVar(&ns, "ns", "", "address of the name server")
+    flag.StringVar(&dbDir, "db", "chunks", "directory where chunks will be stored, erased on startup")
 }
 
 func main() {
@@ -41,7 +42,7 @@ func main() {
 
     log.Printf("listening for clients at %s", addrForClients)
 
-    store, err := tsuki.NewFileSystemChunkStorage("chunks")
+    store, err := tsuki.NewFileSystemChunkStorage(dbDir)
     if err != nil {
         log.Fatal(err)
     }
