@@ -96,6 +96,25 @@ func (conn *NSClientConnector) GetNS(cmd, path string) (*ClientMessage, error) {
 	return msg, nil
 }
 
+func (conn *NSClientConnector) GetNSInit() error {
+	addr := fmt.Sprintf("http://%s%s/init", conn.NSAddr, NSCLIENTPORT)
+
+	resp, err := http.Get(addr)
+	if err != nil {
+		return fmt.Errorf("request: %v", err)
+	}
+
+	msg, err := UnmarshalNSResponse(resp)
+    if err != nil {
+        return fmt.Errorf("request: %v", err)
+    }
+
+	if msg.Status != http.StatusOK {
+		return fmt.Errorf(msg.Message)
+	}
+
+	return nil
+}
 func (conn *NSClientConnector) GetNSUpload(path string, size int64) (*ClientMessage, error) {
 	addr := fmt.Sprintf("http://%s%s/upload?address=%s&size=%d", conn.NSAddr, NSCLIENTPORT, path, size)
 
@@ -134,6 +153,26 @@ func (conn *NSClientConnector) GetNSFromTo(cmd, from, to string) (*ClientMessage
 	}
 
 	return msg, nil
+}
+
+func (conn *NSClientConnector) GetNSObjectInfo(path string) (string, error) {
+	addr := fmt.Sprintf("http://%s%s/info?address=%s", conn.NSAddr, NSCLIENTPORT, path)
+
+	resp, err := http.Get(addr)
+	if err != nil {
+		return "", fmt.Errorf("request: %v", err)
+	}
+
+	msg, err := UnmarshalNSResponse(resp)
+    if err != nil {
+        return "", fmt.Errorf("request: %v", err)
+    }
+
+	if msg.Status != http.StatusOK {
+		return "", fmt.Errorf(msg.Message)
+	}
+
+	return msg.Message, nil
 }
 
 func (conn *NSClientConnector) GetChunkSize() (int, error) {
@@ -654,6 +693,42 @@ func main() {
                     }
 
                     fmt.Println(cwd)
+
+                    return nil
+                },
+            },
+            {
+                Name: "info",
+                Usage: "Print REMOTE object info",
+                Action: func(c *cli.Context) error {
+                    if c.Args().Len() != 1 {
+                        return fmt.Errorf("error: provide a remote path to an object")
+                    }
+
+                    remotePath := FullOrRelative(c.Args().Get(0), cwd)
+
+                    str, err := conn.GetNSObjectInfo(remotePath)
+                    if err != nil {
+                        return fmt.Errorf("error: %v", err)
+                    }
+
+                    fmt.Println(str)
+
+                    return nil
+                },
+            },
+            {
+                Name: "init",
+                Usage: "Purge all data and initialize storage",
+                Action: func(c *cli.Context) error {
+                    if c.Args().Len() != 0 {
+                        return fmt.Errorf("error: provide no arguments")
+                    }
+
+                    err := conn.GetNSInit()
+                    if err != nil {
+                        return fmt.Errorf("error: %v", err)
+                    }
 
                     return nil
                 },
