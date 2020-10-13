@@ -163,6 +163,28 @@ func (conn *NSClientConnector) RemoveFile(path string) error {
 	return nil
 }
 
+func (conn *NSClientConnector) MakeDir(path string) error {
+	msg, err := conn.GetNS("mkdir", path)
+	if err != nil {
+		return fmt.Errorf("mkdir: %v", err)
+	}
+
+	log.Printf("Received message: %#v", msg)
+
+	return nil
+}
+
+func (conn *NSClientConnector) RemoveDir(path string) error {
+	msg, err := conn.GetNS("rmdir", path)
+	if err != nil {
+		return fmt.Errorf("rmdir: %v", err)
+	}
+
+	log.Printf("Received message: %#v", msg)
+
+	return nil
+}
+
 func (conn *NSClientConnector) writeChunkToFS(addr, chunkId, token string, src io.Reader) error {
     fsAddr := fmt.Sprintf("http://%s/chunks/%s?token=%s", addr, chunkId, token)
     resp, err := http.Post(fsAddr, "application/octet-stream", src)
@@ -458,7 +480,24 @@ func main() {
                     return nil
                 },
             },
-            /*
+            {
+                Name: "mkdir",
+                Usage: "Create empty directory",
+                Action: func(c *cli.Context) error {
+                    if c.Args().Len() != 1 {
+                        return fmt.Errorf("error: provide remote path to the directory")
+                    }
+
+                    remotePath := FullOrRelative(c.Args().Get(0), cwd)
+
+                    err := conn.MakeDir(remotePath)
+                    if err != nil {
+                        return fmt.Errorf("error: %v", err)
+                    }
+
+                    return nil
+                },
+            },
             {
                 Name: "rmdir",
                 Usage: "Remove REMOTE directory recursively",
@@ -477,7 +516,6 @@ func main() {
                     return nil
                 },
             },
-            */
         },
 	}
 
