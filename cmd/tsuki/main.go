@@ -471,6 +471,22 @@ func main() {
                 },
             },
             {
+                Name: "init",
+                Usage: "Purge all data and initialize storage",
+                Action: func(c *cli.Context) error {
+                    if c.Args().Len() != 0 {
+                        return fmt.Errorf("error: provide no arguments")
+                    }
+
+                    err := conn.GetNSInit()
+                    if err != nil {
+                        return fmt.Errorf("error: %v", err)
+                    }
+
+                    return nil
+                },
+            },
+            {
                 Name: "ls",
                 Usage: "List directory",
                 Action: func(c *cli.Context) error {
@@ -493,6 +509,61 @@ func main() {
                 },
             },
             {
+                Name: "cd",
+                Usage: "Move to directory",
+                Action: func(c *cli.Context) error {
+                    if c.Args().Len() != 1 {
+                        return fmt.Errorf("error: provide remote path")
+                    }
+
+                    newPath := FullOrRelative(c.Args().Get(0), cwd)
+
+                    err := conn.Cd(newPath)
+                    if err != nil {
+                        return fmt.Errorf("error: %v", err)
+                    }
+
+                    cwd = newPath
+
+                    saveCwd()
+
+                    return nil
+                },
+            },
+            {
+                Name: "pwd",
+                Usage: "Print current working directory",
+                Action: func(c *cli.Context) error {
+                    if c.Args().Len() != 0 {
+                        return fmt.Errorf("error: provide no arguments")
+                    }
+
+                    fmt.Println(cwd)
+
+                    return nil
+                },
+            },
+            {
+                Name: "info",
+                Usage: "Print REMOTE object info",
+                Action: func(c *cli.Context) error {
+                    if c.Args().Len() != 1 {
+                        return fmt.Errorf("error: provide a remote path to an object")
+                    }
+
+                    remotePath := FullOrRelative(c.Args().Get(0), cwd)
+
+                    str, err := conn.GetNSObjectInfo(remotePath)
+                    if err != nil {
+                        return fmt.Errorf("error: %v", err)
+                    }
+
+                    fmt.Println(str)
+
+                    return nil
+                },
+            },
+            {
                 Name: "touch",
                 Usage: "Create empty file",
                 Action: func(c *cli.Context) error {
@@ -503,6 +574,24 @@ func main() {
                     dir := FullOrRelative(c.Args().Get(0), cwd)
 
                     err := conn.Touch(dir)
+                    if err != nil {
+                        return fmt.Errorf("error: %v", err)
+                    }
+
+                    return nil
+                },
+            },
+            {
+                Name: "mkdir",
+                Usage: "Create empty directory",
+                Action: func(c *cli.Context) error {
+                    if c.Args().Len() != 1 {
+                        return fmt.Errorf("error: provide remote path to the directory")
+                    }
+
+                    remotePath := FullOrRelative(c.Args().Get(0), cwd)
+
+                    err := conn.MakeDir(remotePath)
                     if err != nil {
                         return fmt.Errorf("error: %v", err)
                     }
@@ -571,62 +660,8 @@ func main() {
                 },
             },
             {
-                Name: "rm",
-                Usage: "Remove REMOTE file",
-                Action: func(c *cli.Context) error {
-                    if c.Args().Len() != 1 {
-                        return fmt.Errorf("error: provide remote path to the file")
-                    }
-
-                    remotePath := FullOrRelative(c.Args().Get(0), cwd)
-
-                    err := conn.RemoveFile(remotePath)
-                    if err != nil {
-                        return fmt.Errorf("error: %v", err)
-                    }
-
-                    return nil
-                },
-            },
-            {
-                Name: "mkdir",
-                Usage: "Create empty directory",
-                Action: func(c *cli.Context) error {
-                    if c.Args().Len() != 1 {
-                        return fmt.Errorf("error: provide remote path to the directory")
-                    }
-
-                    remotePath := FullOrRelative(c.Args().Get(0), cwd)
-
-                    err := conn.MakeDir(remotePath)
-                    if err != nil {
-                        return fmt.Errorf("error: %v", err)
-                    }
-
-                    return nil
-                },
-            },
-            {
-                Name: "rmdir",
-                Usage: "Remove REMOTE directory recursively",
-                Action: func(c *cli.Context) error {
-                    if c.Args().Len() != 1 {
-                        return fmt.Errorf("error: provide remote path to the directory")
-                    }
-
-                    remotePath := FullOrRelative(c.Args().Get(0), cwd)
-
-                    err := conn.RemoveDir(remotePath)
-                    if err != nil {
-                        return fmt.Errorf("error: %v", err)
-                    }
-
-                    return nil
-                },
-            },
-            {
                 Name: "mv",
-                Usage: "Move `REMOTE` object to REMOTE",
+                Usage: "Move REMOTE object to REMOTE",
                 Action: func(c *cli.Context) error {
                     if c.Args().Len() != 2 {
                         return fmt.Errorf("error: provide remote paths to the two objects")
@@ -645,7 +680,7 @@ func main() {
             },
             {
                 Name: "cp",
-                Usage: "Copy `REMOTE` file to `REMOTE'",
+                Usage: "Copy REMOTE file to REMOTE",
                 Action: func(c *cli.Context) error {
                     if c.Args().Len() != 2 {
                         return fmt.Errorf("error: provide remote paths to the two files")
@@ -663,69 +698,34 @@ func main() {
                 },
             },
             {
-                Name: "cd",
-                Usage: "Move to directory",
+                Name: "rm",
+                Usage: "Remove REMOTE file",
                 Action: func(c *cli.Context) error {
                     if c.Args().Len() != 1 {
-                        return fmt.Errorf("error: provide remote path")
-                    }
-
-                    newPath := FullOrRelative(c.Args().Get(0), cwd)
-
-                    err := conn.Cd(newPath)
-                    if err != nil {
-                        return fmt.Errorf("error: %v", err)
-                    }
-
-                    cwd = newPath
-
-                    saveCwd()
-
-                    return nil
-                },
-            },
-            {
-                Name: "pwd",
-                Usage: "Print current working directory",
-                Action: func(c *cli.Context) error {
-                    if c.Args().Len() != 0 {
-                        return fmt.Errorf("error: provide no arguments")
-                    }
-
-                    fmt.Println(cwd)
-
-                    return nil
-                },
-            },
-            {
-                Name: "info",
-                Usage: "Print REMOTE object info",
-                Action: func(c *cli.Context) error {
-                    if c.Args().Len() != 1 {
-                        return fmt.Errorf("error: provide a remote path to an object")
+                        return fmt.Errorf("error: provide remote path to the file")
                     }
 
                     remotePath := FullOrRelative(c.Args().Get(0), cwd)
 
-                    str, err := conn.GetNSObjectInfo(remotePath)
+                    err := conn.RemoveFile(remotePath)
                     if err != nil {
                         return fmt.Errorf("error: %v", err)
                     }
-
-                    fmt.Println(str)
 
                     return nil
                 },
             },
             {
-                Name: "init",
-                Usage: "Purge all data and initialize storage",
+                Name: "rmdir",
+                Usage: "Remove REMOTE directory recursively",
                 Action: func(c *cli.Context) error {
-                    if c.Args().Len() != 0 {
-                        return fmt.Errorf("error: provide no arguments")
+                    if c.Args().Len() != 1 {
+                        return fmt.Errorf("error: provide remote path to the directory")
                     }
 
-                    err := conn.GetNSInit()
+                    remotePath := FullOrRelative(c.Args().Get(0), cwd)
+
+                    err := conn.RemoveDir(remotePath)
                     if err != nil {
                         return fmt.Errorf("error: %v", err)
                     }
