@@ -160,7 +160,7 @@ func (conn *NSClientConnector) Upload(file io.Reader, destPath string, fileSize 
 
     msg, err := conn.GetNSUpload(destPath, fileSize)
     if err != nil {
-        return fmt.Errorf("upload: %v", err)
+        return fmt.Errorf("upload request: %v", err)
     }
 
     uploaded := 0
@@ -178,9 +178,68 @@ func (conn *NSClientConnector) Upload(file io.Reader, destPath string, fileSize 
         chunkSrc := io.LimitReader(file, int64(conn.chunkSize))
         barReader := bar.NewProxyReader(chunkSrc)
 
-        conn.writeChunkToFS(meta.StorageIP, meta.ChunkID, msg.Token, barReader)
+        err := conn.writeChunkToFS(meta.StorageIP, meta.ChunkID, msg.Token, barReader)
+        if err != nil {
+            return fmt.Errorf("upload sequence:")
+        }
 
         uploaded += conn.chunkSize
+        bar.Finish()
+    }
+
+	log.Printf("Received message: %#v", msg)
+
+	return nil
+}
+
+func (conn *NSClientConnector) downloadChunk(addr, chunkId, token string, dest io.Writer) error {
+    fsAddr := fmt.Sprintf("http://%s/chunks/%s?token=%s", addr, chunkId, token)
+    resp, err := http.Get(fsAddr)
+    if err != nil {
+        return fmt.Errorf("fetch chunk: %v", err)
+    }
+
+    if resp.StatusCode != http.StatusOK {
+        return fmt.Errorf("fetch chunk: %d %s", resp.StatusCode, resp.Status)
+    }
+
+    _, err = io.Copy(dest, resp.Body)
+    if err != nil {
+        return fmt.Errorf("fetch chunk: %v", err)
+    }
+
+    return nil
+}
+
+func (conn *NSClientConnector) Download(srcPath string, file io.Writer) error {
+    var err error
+    if conn.chunkSize == 0 {
+        conn.chunkSize, err = conn.GetChunkSize()
+        if err != nil {
+            return fmt.Errorf("download init: %v", err)
+        }
+    }
+
+    msg, err := conn.GetNS("download", srcPath)
+    if err != nil {
+        return fmt.Errorf("download, request stage: %v", err)
+    }
+
+    for i, meta := range msg.Chunks {
+        width := len(strconv.Itoa(len(msg.Chunks)))
+
+        requestSize := conn.chunkSize
+
+        bar := pb.ProgressBarTemplate(BarTemplate).Start(requestSize)
+        bar.Set("chunkProgress", fmt.Sprintf("% *d/%d", width, i + 1, len(msg.Chunks)))
+
+        barWriter := bar.NewProxyWriter(file)
+
+        err := conn.downloadChunk(meta.StorageIP, meta.ChunkID, msg.Token, barWriter)
+        if err != nil {
+            return fmt.Errorf("download sequence: %v", err)
+        }
+
         bar.Finish()
     }
 
@@ -298,7 +357,7 @@ func main() {
             },
             {
                 Name: "upload",
-                Usage: "Upload file from local storage",
+                Usage: "Upload LOCAL file to REMOTE",
                 Action: func(c *cli.Context) error {
                     if c.Args().Len() != 2 {
                         return fmt.Errorf("error: provide local and remote paths to the file")
@@ -331,6 +390,48 @@ func main() {
                     }
 
                     err = conn.Upload(file, remotePath, stat.Size())
+                    if err != nil {
+                        return fmt.Errorf("error: %v", err)
+                    }
+
+                    return nil
+                },
+            },
+            {
+                Name: "download",
+                Usage: "Download REMOTE",
+                Action: func(c *cli.Context) error {
+                    if c.Args().Len() != 2 {
+                        return fmt.Errorf("error: provide remote and local paths to the file")
+                    }
+
+                    remotePath := c.Args().Get(0)
+                    if remotePath[0] != '/' {
+                        remotePath = path.Join(cwd, remotePath)
+                    }
+
+                    localWd, err := os.Getwd()
+                    if err != nil {
+                        panic(err)
+                    }
+
+                    localPath := c.Args().Get(1)
+                    if localPath[0] != '/' {
+                        localPath = path.Join(localWd, localPath)
+                    }
+
+                    // TODO: do you want to overwrite?
+                    if _, err := os.Stat(localPath); os.IsExist(err) {
+                        log.Print("warning: overwrite")
+                    }
+
+                    file, err := os.Create(localPath)
+                    if err != nil {
+                        return fmt.Errorf("download: %v", err)
+                    }
+                    defer file.Close()
+
+                    err = conn.Download(remotePath, file)
                     if err != nil {
                         return fmt.Errorf("error: %v", err)
                     }
