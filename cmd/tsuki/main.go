@@ -603,12 +603,16 @@ func main() {
                 Name: "upload",
                 Usage: "Upload LOCAL file to REMOTE",
                 Action: func(c *cli.Context) error {
-                    if c.Args().Len() != 2 {
-                        return fmt.Errorf("error: provide local and remote paths to the file")
+                    if c.Args().Len() < 1 {
+                        return fmt.Errorf("error: provide local (and, optionally, remote) paths to the file")
                     }
 
                     localPath  := FullOrRelative(c.Args().Get(0), LocalWd())
-                    remotePath := FullOrRelative(c.Args().Get(1), cwd)
+
+                    remotePath := path.Join(cwd, path.Base(localPath))
+                    if c.Args().Len() > 1 {
+                        remotePath = FullOrRelative(c.Args().Get(1), cwd)
+                    }
 
                     file, err := os.Open(localPath)
                     if err != nil {
@@ -632,26 +636,39 @@ func main() {
             {
                 Name: "download",
                 Usage: "Download REMOTE",
+                Flags: []cli.Flag{
+                    &cli.BoolFlag{
+                        Name: "f",
+                        Value: false,
+                        Usage: "Overwrite destination, if exists",
+                    },
+                },
                 Action: func(c *cli.Context) error {
-                    if c.Args().Len() != 2 {
-                        return fmt.Errorf("error: provide remote and local paths to the file")
+                    if c.Args().Len() < 1 {
+                        return fmt.Errorf("error: provide remote (and, optionally, local) paths to the file")
                     }
 
                     remotePath := FullOrRelative(c.Args().Get(0), cwd)
-                    localPath  := FullOrRelative(c.Args().Get(1), LocalWd())
+
+                    localPath := path.Base(remotePath)
+                    if c.Args().Len() > 1 {
+                        localPath  = FullOrRelative(c.Args().Get(1), LocalWd())
+                    }
 
                     if info, err := os.Stat(localPath); err == nil {
                         if info.IsDir() {
                             return fmt.Errorf("download: destination is a directory")
                         }
 
-                        fmt.Printf("File %s already exists. Overwrite? [y/N] ", localPath)
+                        if !c.Bool("f") {
+                            fmt.Printf("File %s already exists. Overwrite? [y/N] ", localPath)
 
-                        var ans string
-                        fmt.Scanf("%s", &ans)
+                            var ans string
+                            fmt.Scanf("%s", &ans)
 
-                        if ans != "y" {
-                            return nil
+                            if ans != "y" {
+                                return nil
+                            }
                         }
                     }
 
