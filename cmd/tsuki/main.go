@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"io/ioutil"
 	"log"
 	"net/http"
 	"os"
@@ -19,6 +20,8 @@ const (
     TempNS = "tsuki.ns"
     TempCwd = "tsuki.cwd"
 )
+
+const EnvDebug = "TSUKI_DEBUG"
 
 const NSCLIENTPORT = ":7070"
 
@@ -430,6 +433,10 @@ func loadFromTemp(name string) string {
 }
 
 func main() {
+    _, debugMode := os.LookupEnv(EnvDebug)
+    if !debugMode {
+        log.SetOutput(ioutil.Discard)
+    }
 
     ns := loadFromTemp(TempNS)
 
