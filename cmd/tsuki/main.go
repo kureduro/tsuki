@@ -9,7 +9,9 @@ import (
 	"net/http"
 	"os"
 	"path"
+	"strconv"
 
+	"github.com/cheggaaa/pb/v3"
 	"github.com/urfave/cli/v2"
 )
 
@@ -19,6 +21,8 @@ const (
 )
 
 const NSCLIENTPORT = ":7070"
+
+const BarTemplate = ` chunk {{ string . "chunkProgress" }}   {{ percent . }} {{ speed . }}`
 
 var ns string
 var cwd string
@@ -159,10 +163,25 @@ func (conn *NSClientConnector) Upload(file io.Reader, destPath string, fileSize 
         return fmt.Errorf("upload: %v", err)
     }
 
+    uploaded := 0
     for i, meta := range msg.Chunks {
+        width := len(strconv.Itoa(len(msg.Chunks)))
+
+        requestSize := conn.chunkSize
+        if int(fileSize) - uploaded < requestSize {
+            requestSize = int(fileSize) - uploaded
+        }
+
+        bar := pb.ProgressBarTemplate(BarTemplate).Start(requestSize)
+        bar.Set("chunkProgress", fmt.Sprintf("% *d/%d", width, i + 1, len(msg.Chunks)))
+
         chunkSrc := io.LimitReader(file, int64(conn.chunkSize))
-        conn.writeChunkToFS(meta.StorageIP, meta.ChunkID, msg.Token, chunkSrc)
-        fmt.Printf("Sent chunk #%d to %s\n", i, meta.StorageIP)
+        barReader := bar.NewProxyReader(chunkSrc)
+
+        conn.writeChunkToFS(meta.StorageIP, meta.ChunkID, msg.Token, barReader)
+
+        uploaded += conn.chunkSize
+        bar.Finish()
     }
 
 	log.Printf("Received message: %#v", msg)
