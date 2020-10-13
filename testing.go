@@ -8,95 +8,9 @@ import (
 	"net/http"
 	"reflect"
 	"strings"
-	"sync"
 	"testing"
 	"time"
 )
-
-type InMemoryChunkStorage struct {
-    Index map[string]string
-    Mu sync.RWMutex
-    accessCount sync.WaitGroup
-    callsPerformed int
-}
-
-func NewInMemoryChunkStorage(index map[string]string) *InMemoryChunkStorage {
-    return &InMemoryChunkStorage {
-        Index: index,
-    }
-}
-
-func (s *InMemoryChunkStorage) Get(id string) (io.Reader, func(), error) {
-    if !s.Exists(id) {
-        return nil, func(){}, ErrChunkNotFound
-    }
-
-    s.accessCount.Add(1)
-
-    s.Mu.RLock()
-    defer s.Mu.RUnlock()
-
-    chunk := s.Index[id]
-
-    buf := bytes.NewBufferString(chunk)
-
-    closeFunc := func() {
-        s.accessCount.Done()
-    }
-
-    return buf, closeFunc, nil
-}
-
-func (s *InMemoryChunkStorage) Create(id string) (io.Writer, func(), error) {
-    if s.Exists(id) {
-        return nil, func(){}, ErrChunkExists
-    }
-
-    s.accessCount.Add(1)
-
-    s.Mu.Lock()
-    defer s.Mu.Unlock()
-
-    s.Index[id] = ""
-
-    buf := &bytes.Buffer{}
-
-    writeChunk := func() {
-        str := &strings.Builder{}
-        io.Copy(str, buf)
-        s.Index[id] = str.String()
-
-        s.accessCount.Done()
-    }
-
-    return buf, writeChunk, nil
-}
-
-func (s *InMemoryChunkStorage) Exists(id string) (exists bool) {
-    s.accessCount.Add(1)
-    defer s.accessCount.Done()
-
-    s.Mu.RLock()
-    defer s.Mu.RUnlock()
-
-    _, exists = s.Index[id]
-    return
-}
-
-func (s *InMemoryChunkStorage) Remove(id string) error {
-    s.accessCount.Add(1)
-    defer s.accessCount.Done()
-
-    s.Mu.Lock()
-    defer s.Mu.Unlock()
-
-    delete(s.Index, id)
-    return nil
-}
-
-func (s *InMemoryChunkStorage) BytesAvailable() int {
-    return 1024 * 1024 * 10
-}
 
 func NewGetChunkRequest(id, token string) *http.Request {
     req, _ := http.NewRequest(http.MethodGet, fmt.Sprintf("/chunks/%s?token=%s", id, token), nil)

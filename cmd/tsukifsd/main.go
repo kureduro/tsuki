@@ -41,13 +41,9 @@ func main() {
 
     log.Printf("listening for clients at %s", addrForClients)
 
-    store := &tsuki.InMemoryChunkStorage{
-        Index : map[string]string {
-            "0" : "hi",
-            "1" : "how",
-            "2" : "are",
-            "3" : "you",
-        },
+    store, err := tsuki.NewFileSystemChunkStorage("chunks")
+    if err != nil {
+        log.Fatal(err)
     }
 
     nsConn := &tsuki.HTTPNSConnector{}
