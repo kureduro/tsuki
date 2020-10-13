@@ -640,9 +640,19 @@ func main() {
                     remotePath := FullOrRelative(c.Args().Get(0), cwd)
                     localPath  := FullOrRelative(c.Args().Get(1), LocalWd())
 
-                    // TODO: do you want to overwrite?
-                    if _, err := os.Stat(localPath); os.IsExist(err) {
-                        log.Print("warning: overwrite")
+                    if info, err := os.Stat(localPath); err == nil {
+                        if info.IsDir() {
+                            return fmt.Errorf("download: destination is a directory")
+                        }
+
+                        fmt.Printf("File %s already exists. Overwrite? [y/N] ", localPath)
+
+                        var ans string
+                        fmt.Scanf("%s", &ans)
+
+                        if ans != "y" {
+                            return nil
+                        }
                     }
 
                     file, err := os.Create(localPath)
