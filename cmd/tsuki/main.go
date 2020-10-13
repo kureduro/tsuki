@@ -62,14 +62,15 @@ type NSClientConnector struct {
     chunkSize int
 }
 
-func UnmarshalNSResponse(response *http.Response) (msg *ClientMessage) {
+func UnmarshalNSResponse(response *http.Response) (msg *ClientMessage, err error) {
 	buf := &bytes.Buffer{}
 	io.Copy(buf, response.Body)
 
 	msg = &ClientMessage{Status: response.StatusCode}
 
-	if err := json.Unmarshal(buf.Bytes(), &msg); err != nil {
+	if err = json.Unmarshal(buf.Bytes(), &msg); err != nil {
 		log.Printf("warning: could not unmarshal response %q, %v", buf, err)
+        err = fmt.Errorf("fundamental commucation protocol failure")
 	}
 
 	return
@@ -80,10 +81,13 @@ func (conn *NSClientConnector) GetNS(cmd, path string) (*ClientMessage, error) {
 
 	resp, err := http.Get(addr)
 	if err != nil {
-		return nil, fmt.Errorf("send request: %v", err)
+		return nil, fmt.Errorf("request: %v", err)
 	}
 
-	msg := UnmarshalNSResponse(resp)
+	msg, err := UnmarshalNSResponse(resp)
+    if err != nil {
+        return nil, fmt.Errorf("request: %v", err)
+    }
 
 	if msg.Status != http.StatusOK {
 		return nil, fmt.Errorf(msg.Message)
@@ -97,10 +101,33 @@ func (conn *NSClientConnector) GetNSUpload(path string, size int64) (*ClientMess
 
 	resp, err := http.Get(addr)
 	if err != nil {
-        return nil, fmt.Errorf("send request: %v", err)
+        return nil, fmt.Errorf("request: %v", err)
 	}
 
-	msg := UnmarshalNSResponse(resp)
+	msg, err := UnmarshalNSResponse(resp)
+    if err != nil {
+        return nil, fmt.Errorf("request: %v", err)
+    }
+
+	if msg.Status != http.StatusOK {
+		return nil, fmt.Errorf(msg.Message)
+	}
+
+	return msg, nil
+}
+
+func (conn *NSClientConnector) GetNSFromTo(cmd, from, to string) (*ClientMessage, error) {
+	addr := fmt.Sprintf("http://%s%s/%s?from=%s&to=%s", conn.NSAddr, NSCLIENTPORT, cmd, from, to)
+
+	resp, err := http.Get(addr)
+	if err != nil {
+        return nil, fmt.Errorf("request: %v", err)
+	}
+
+	msg, err := UnmarshalNSResponse(resp)
+    if err != nil {
+        return nil, fmt.Errorf("request: %v", err)
+    }
 
 	if msg.Status != http.StatusOK {
 		return nil, fmt.Errorf(msg.Message)
@@ -178,6 +205,28 @@ func (conn *NSClientConnector) RemoveDir(path string) error {
 	msg, err := conn.GetNS("rmdir", path)
 	if err != nil {
 		return fmt.Errorf("rmdir: %v", err)
+	}
+
+	log.Printf("Received message: %#v", msg)
+
+	return nil
+}
+
+func (conn *NSClientConnector) Copy(from, to string) error {
+	msg, err := conn.GetNSFromTo("cp", from, to)
+	if err != nil {
+		return fmt.Errorf("cp: %v", err)
+	}
+
+	log.Printf("Received message: %#v", msg)
+
+	return nil
+}
+
+func (conn *NSClientConnector) Move(from, to string) error {
+	msg, err := conn.GetNSFromTo("mv", from, to)
+	if err != nil {
+		return fmt.Errorf("mv: %v", err)
 	}
 
 	log.Printf("Received message: %#v", msg)
@@ -509,6 +558,44 @@ func main() {
                     remotePath := FullOrRelative(c.Args().Get(0), cwd)
 
                     err := conn.RemoveDir(remotePath)
+                    if err != nil {
+                        return fmt.Errorf("error: %v", err)
+                    }
+
+                    return nil
+                },
+            },
+            {
+                Name: "mv",
+                Usage: "Move `REMOTE` object to REMOTE",
+                Action: func(c *cli.Context) error {
+                    if c.Args().Len() != 2 {
+                        return fmt.Errorf("error: provide remote paths to the two objects")
+                    }
+
+                    srcPath  := FullOrRelative(c.Args().Get(0), cwd)
+                    destPath := FullOrRelative(c.Args().Get(1), cwd)
+
+                    err := conn.Move(srcPath, destPath)
+                    if err != nil {
+                        return fmt.Errorf("error: %v", err)
+                    }
+
+                    return nil
+                },
+            },
+            {
+                Name: "cp",
+                Usage: "Copy `REMOTE` file to `REMOTE'",
+                Action: func(c *cli.Context) error {
+                    if c.Args().Len() != 2 {
+                        return fmt.Errorf("error: provide remote paths to the two files")
+                    }
+
+                    srcPath  := FullOrRelative(c.Args().Get(0), cwd)
+                    destPath := FullOrRelative(c.Args().Get(1), cwd)
+
+                    err := conn.Move(srcPath, destPath)
                     if err != nil {
                         return fmt.Errorf("error: %v", err)
                     }
