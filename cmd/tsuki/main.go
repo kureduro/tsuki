@@ -40,6 +40,23 @@ type ClientMessage struct {
 	Chunks  []ChunkMessage `json:"chunks"`
 }
 
+func FullOrRelative(filepath, wd string) string {
+    if filepath[0] != '/' {
+        filepath = path.Join(wd, filepath)
+    }
+
+    return filepath
+}
+
+func LocalWd() string {
+    wd, err := os.Getwd()
+    if err != nil {
+        panic(err)
+    }
+
+    return wd
+}
+
 type NSClientConnector struct {
 	NSAddr string
     chunkSize int
@@ -128,6 +145,17 @@ func (conn *NSClientConnector) Touch(path string) error {
 	msg, err := conn.GetNS("touch", path)
 	if err != nil {
 		return fmt.Errorf("touch: %v", err)
+	}
+
+	log.Printf("Received message: %#v", msg)
+
+	return nil
+}
+
+func (conn *NSClientConnector) RemoveFile(path string) error {
+	msg, err := conn.GetNS("rmfile", path)
+	if err != nil {
+		return fmt.Errorf("rm: %v", err)
 	}
 
 	log.Printf("Received message: %#v", msg)
@@ -342,10 +370,7 @@ func main() {
                         return fmt.Errorf("error: only provide path to the file")
                     }
 
-                    dir := c.Args().First()
-                    if dir[0] != '/' {
-                        dir = path.Join(cwd, dir)
-                    }
+                    dir := FullOrRelative(c.Args().Get(0), cwd)
 
                     err := conn.Touch(dir)
                     if err != nil {
@@ -363,20 +388,8 @@ func main() {
                         return fmt.Errorf("error: provide local and remote paths to the file")
                     }
 
-                    localWd, err := os.Getwd()
-                    if err != nil {
-                        panic(err)
-                    }
-
-                    localPath := c.Args().Get(0)
-                    if localPath[0] != '/' {
-                        localPath = path.Join(localWd, localPath)
-                    }
-
-                    remotePath := c.Args().Get(1)
-                    if remotePath[0] != '/' {
-                        remotePath = path.Join(cwd, remotePath)
-                    }
+                    localPath  := FullOrRelative(c.Args().Get(0), LocalWd())
+                    remotePath := FullOrRelative(c.Args().Get(1), cwd)
 
                     file, err := os.Open(localPath)
                     if err != nil {
@@ -405,20 +418,8 @@ func main() {
                         return fmt.Errorf("error: provide remote and local paths to the file")
                     }
 
-                    remotePath := c.Args().Get(0)
-                    if remotePath[0] != '/' {
-                        remotePath = path.Join(cwd, remotePath)
-                    }
-
-                    localWd, err := os.Getwd()
-                    if err != nil {
-                        panic(err)
-                    }
-
-                    localPath := c.Args().Get(1)
-                    if localPath[0] != '/' {
-                        localPath = path.Join(localWd, localPath)
-                    }
+                    remotePath := FullOrRelative(c.Args().Get(0), cwd)
+                    localPath  := FullOrRelative(c.Args().Get(1), LocalWd())
 
                     // TODO: do you want to overwrite?
                     if _, err := os.Stat(localPath); os.IsExist(err) {
@@ -439,6 +440,44 @@ func main() {
                     return nil
                 },
             },
+            {
+                Name: "rm",
+                Usage: "Remove REMOTE file",
+                Action: func(c *cli.Context) error {
+                    if c.Args().Len() != 1 {
+                        return fmt.Errorf("error: provide remote path to the file")
+                    }
+
+                    remotePath := FullOrRelative(c.Args().Get(0), cwd)
+
+                    err := conn.RemoveFile(remotePath)
+                    if err != nil {
+                        return fmt.Errorf("error: %v", err)
+                    }
+
+                    return nil
+                },
+            },
+            /*
+            {
+                Name: "rmdir",
+                Usage: "Remove REMOTE directory recursively",
+                Action: func(c *cli.Context) error {
+                    if c.Args().Len() != 1 {
+                        return fmt.Errorf("error: provide remote path to the directory")
+                    }
+
+                    remotePath := FullOrRelative(c.Args().Get(0), cwd)
+
+                    err := conn.RemoveDir(remotePath)
+                    if err != nil {
+                        return fmt.Errorf("error: %v", err)
+                    }
+
+                    return nil
+                },
+            },
+            */
         },
 	}
 
