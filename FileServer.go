@@ -407,7 +407,12 @@ func (s *FileServer) ReplicateHandler(w http.ResponseWriter, r *http.Request) {
     }
 
     for _, id := range chunks {
-        s.Expect(token, ExpectActionRead, id)
+        err := s.Expect(token, ExpectActionRead, id)
+        if err != nil {
+            log.Printf("error: replica could not be registered internally, token=%s, chunkId=%s", token, id)
+            continue
+        }
+
         defer s.fulfillExpectation(token, id)
 
         chunk, closeChunk, err := s.chunks.Get(id)
