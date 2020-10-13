@@ -157,6 +157,18 @@ func (conn *NSClientConnector) GetChunkSize() (int, error) {
 	return size, nil
 }
 
+func (conn *NSClientConnector) Cd(path string) error {
+	msg, err := conn.GetNS("cd", path)
+    if err != nil {
+        return fmt.Errorf("cd: %v", err)
+    }
+
+	log.Printf("Received message: %#v", msg)
+
+	return nil
+}
+
+
 func (conn *NSClientConnector) Ls(path string) ([]string, error) {
 	msg, err := conn.GetNS("ls", path)
     if err != nil {
@@ -348,6 +360,15 @@ func (conn *NSClientConnector) Download(srcPath string, file io.Writer) error {
 }
 
 func saveCwd() {
+    filename := path.Join(os.TempDir(), TempCwd)
+    file, err := os.Create(filename)
+    if err != nil {
+        log.Printf("warning: could not create temp file, %v", err)
+        return
+    }
+    defer file.Close()
+
+    fmt.Fprint(file, cwd)
 }
 
 func loadFromTemp(name string) string {
@@ -376,7 +397,6 @@ func main() {
 	conn := &NSClientConnector{
 		NSAddr: ns,
 	}
-    log.Print(ns)
 
     cwd = loadFromTemp(TempCwd)
     if cwd == "" {
@@ -599,6 +619,41 @@ func main() {
                     if err != nil {
                         return fmt.Errorf("error: %v", err)
                     }
+
+                    return nil
+                },
+            },
+            {
+                Name: "cd",
+                Usage: "Move to directory",
+                Action: func(c *cli.Context) error {
+                    if c.Args().Len() != 1 {
+                        return fmt.Errorf("error: provide remote path")
+                    }
+
+                    newPath := FullOrRelative(c.Args().Get(0), cwd)
+
+                    err := conn.Cd(newPath)
+                    if err != nil {
+                        return fmt.Errorf("error: %v", err)
+                    }
+
+                    cwd = newPath
+
+                    saveCwd()
+
+                    return nil
+                },
+            },
+            {
+                Name: "pwd",
+                Usage: "Print current working directory",
+                Action: func(c *cli.Context) error {
+                    if c.Args().Len() != 0 {
+                        return fmt.Errorf("error: provide no arguments")
+                    }
+
+                    fmt.Println(cwd)
 
                     return nil
                 },
