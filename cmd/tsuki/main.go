@@ -10,10 +10,11 @@ import (
 	"net/http"
 	"os"
 	"path"
-	"strconv"
+	"time"
 
-	"github.com/cheggaaa/pb/v3"
 	"github.com/urfave/cli/v2"
+	"github.com/vbauerster/mpb/v5"
+	"github.com/vbauerster/mpb/v5/decor"
 )
 
 const (
@@ -288,6 +289,39 @@ func (conn *NSClientConnector) Move(from, to string) error {
 	return nil
 }
 
+func (conn *NSClientConnector) genBarsForThread(p *mpb.Progress, count int) []*mpb.Bar {
+
+    bars := make([]*mpb.Bar, count)
+    prepareBar := p.AddBar(1, mpb.BarStyle("[=>-]"),
+        mpb.PrependDecorators(
+            decor.Name("preparing..."),
+        ),
+    )
+
+    lastBar := prepareBar
+    for i := range bars {
+        task := fmt.Sprint("chunk ", i + 1, "/", count, "   ")
+        bars[i] = p.AddBar(int64(conn.chunkSize), mpb.BarStyle("[=>-|"),
+            mpb.BarQueueAfter(lastBar),
+            mpb.PrependDecorators(
+                decor.Name(task),
+                decor.CountersKibiByte("% .2f / % .2f"),
+            ),
+            mpb.AppendDecorators(
+                decor.EwmaETA(decor.ET_STYLE_GO, 90),
+                decor.Name("] "),
+                decor.EwmaSpeed(decor.UnitKiB, " % .2f", 60),
+            ),
+        )
+
+        lastBar = bars[i]
+    }
+
+    prepareBar.Increment()
+
+    return bars
+}
+
 func (conn *NSClientConnector) writeChunkToFS(addr, chunkId, token string, src io.Reader) error {
     fsAddr := fmt.Sprintf("http://%s/chunks/%s?token=%s", addr, chunkId, token)
     resp, err := http.Post(fsAddr, "application/octet-stream", src)
@@ -316,28 +350,21 @@ func (conn *NSClientConnector) Upload(file io.Reader, destPath string, fileSize 
         return fmt.Errorf("upload request: %v", err)
     }
 
-    uploaded := 0
+    p := mpb.New(
+        mpb.WithWidth(20),
+        mpb.WithRefreshRate(10 * time.Millisecond),
+    )
+
+    bars := conn.genBarsForThread(p, len(msg.Chunks))
+
     for i, meta := range msg.Chunks {
-        width := len(strconv.Itoa(len(msg.Chunks)))
-
-        requestSize := conn.chunkSize
-        if int(fileSize) - uploaded < requestSize {
-            requestSize = int(fileSize) - uploaded
-        }
-
-        bar := pb.ProgressBarTemplate(BarTemplate).Start(requestSize)
-        bar.Set("chunkProgress", fmt.Sprintf("% *d/%d", width, i + 1, len(msg.Chunks)))
-
         chunkSrc := io.LimitReader(file, int64(conn.chunkSize))
-        barReader := bar.NewProxyReader(chunkSrc)
+        proxyReader := bars[i].ProxyReader(chunkSrc)
 
-        err := conn.writeChunkToFS(meta.StorageIP, meta.ChunkID, msg.Token, barReader)
+        err := conn.writeChunkToFS(meta.StorageIP, meta.ChunkID, msg.Token, proxyReader)
         if err != nil {
             return fmt.Errorf("upload sequence:")
         }
-
-        uploaded += conn.chunkSize
-        bar.Finish()
     }
 
 	log.Printf("Received message: %#v", msg)
@@ -345,7 +372,7 @@ func (conn *NSClientConnector) Upload(file io.Reader, destPath string, fileSize 
 	return nil
 }
 
-func (conn *NSClientConnector) downloadChunk(addr, chunkId, token string, dest io.Writer) error {
+func (conn *NSClientConnector) downloadChunk(addr, chunkId, token string, dest io.Writer, bar *mpb.Bar) error {
     fsAddr := fmt.Sprintf("http://%s/chunks/%s?token=%s", addr, chunkId, token)
     resp, err := http.Get(fsAddr)
     if err != nil {
@@ -356,7 +383,9 @@ func (conn *NSClientConnector) downloadChunk(addr, chunkId, token string, dest i
         return fmt.Errorf("fetch chunk: %d %s", resp.StatusCode, resp.Status)
     }
 
-    _, err = io.Copy(dest, resp.Body)
+    proxyReader := bar.ProxyReader(resp.Body)
+
+    _, err = io.Copy(dest, proxyReader)
     if err != nil {
         return fmt.Errorf("fetch chunk: %v", err)
     }
@@ -378,22 +407,19 @@ func (conn *NSClientConnector) Download(srcPath string, file io.Writer) error {
         return fmt.Errorf("download, request stage: %v", err)
     }
 
+    p := mpb.New(
+        mpb.WithWidth(20),
+        mpb.WithRefreshRate(180 * time.Millisecond),
+    )
+
+    bars := conn.genBarsForThread(p, len(msg.Chunks))
+
     for i, meta := range msg.Chunks {
-        width := len(strconv.Itoa(len(msg.Chunks)))
 
-        requestSize := conn.chunkSize
-
-        bar := pb.ProgressBarTemplate(BarTemplate).Start(requestSize)
-        bar.Set("chunkProgress", fmt.Sprintf("% *d/%d", width, i + 1, len(msg.Chunks)))
-
-        barWriter := bar.NewProxyWriter(file)
-
-        err := conn.downloadChunk(meta.StorageIP, meta.ChunkID, msg.Token, barWriter)
+        err := conn.downloadChunk(meta.StorageIP, meta.ChunkID, msg.Token, file, bars[i])
         if err != nil {
             return fmt.Errorf("download sequence: %v", err)
         }
-
-        bar.Finish()
     }
 
 	log.Printf("Received message: %#v", msg)
@@ -432,6 +458,7 @@ func loadFromTemp(name string) string {
     return buf.String()
 }
 
+
 func main() {
     _, debugMode := os.LookupEnv(EnvDebug)
     if !debugMode {
@@ -448,6 +475,14 @@ func main() {
     if cwd == "" {
         cwd = "/"
         saveCwd()
+    }
+
+    checkNSConnected := func(c *cli.Context) error {
+        if ns == "" {
+            return fmt.Errorf("error: name server was not probed. Used tsuki connect first")
+        }
+
+        return nil
     }
 
 	app := &cli.App{
@@ -481,6 +516,11 @@ func main() {
                 Name: "init",
                 Usage: "Purge all data and initialize storage",
                 Action: func(c *cli.Context) error {
+                    beforeErr := checkNSConnected(c)
+                    if beforeErr != nil {
+                        return beforeErr
+                    }
+
                     if c.Args().Len() != 0 {
                         return fmt.Errorf("error: provide no arguments")
                     }
@@ -497,6 +537,10 @@ func main() {
                 Name: "ls",
                 Usage: "List directory",
                 Action: func(c *cli.Context) error {
+                    beforeErr := checkNSConnected(c)
+                    if beforeErr != nil {
+                        return beforeErr
+                    }
 
                     dir := c.Args().First()
                     if dir == "" {
@@ -519,6 +563,11 @@ func main() {
                 Name: "cd",
                 Usage: "Move to directory",
                 Action: func(c *cli.Context) error {
+                    beforeErr := checkNSConnected(c)
+                    if beforeErr != nil {
+                        return beforeErr
+                    }
+
                     if c.Args().Len() != 1 {
                         return fmt.Errorf("error: provide remote path")
                     }
@@ -554,6 +603,11 @@ func main() {
                 Name: "info",
                 Usage: "Print REMOTE object info",
                 Action: func(c *cli.Context) error {
+                    beforeErr := checkNSConnected(c)
+                    if beforeErr != nil {
+                        return beforeErr
+                    }
+
                     if c.Args().Len() != 1 {
                         return fmt.Errorf("error: provide a remote path to an object")
                     }
@@ -574,6 +628,11 @@ func main() {
                 Name: "touch",
                 Usage: "Create empty file",
                 Action: func(c *cli.Context) error {
+                    beforeErr := checkNSConnected(c)
+                    if beforeErr != nil {
+                        return beforeErr
+                    }
+
                     if c.Args().Len() != 1 {
                         return fmt.Errorf("error: only provide path to the file")
                     }
@@ -592,6 +651,11 @@ func main() {
                 Name: "mkdir",
                 Usage: "Create empty directory",
                 Action: func(c *cli.Context) error {
+                    beforeErr := checkNSConnected(c)
+                    if beforeErr != nil {
+                        return beforeErr
+                    }
+
                     if c.Args().Len() != 1 {
                         return fmt.Errorf("error: provide remote path to the directory")
                     }
@@ -610,6 +674,11 @@ func main() {
                 Name: "upload",
                 Usage: "Upload LOCAL file to REMOTE",
                 Action: func(c *cli.Context) error {
+                    beforeErr := checkNSConnected(c)
+                    if beforeErr != nil {
+                        return beforeErr
+                    }
+
                     if c.Args().Len() < 1 {
                         return fmt.Errorf("error: provide local (and, optionally, remote) paths to the file")
                     }
@@ -651,6 +720,11 @@ func main() {
                     },
                 },
                 Action: func(c *cli.Context) error {
+                    beforeErr := checkNSConnected(c)
+                    if beforeErr != nil {
+                        return beforeErr
+                    }
+
                     if c.Args().Len() < 1 {
                         return fmt.Errorf("error: provide remote (and, optionally, local) paths to the file")
                     }
@@ -697,6 +771,11 @@ func main() {
                 Name: "mv",
                 Usage: "Move REMOTE object to REMOTE",
                 Action: func(c *cli.Context) error {
+                    beforeErr := checkNSConnected(c)
+                    if beforeErr != nil {
+                        return beforeErr
+                    }
+
                     if c.Args().Len() != 2 {
                         return fmt.Errorf("error: provide remote paths to the two objects")
                     }
@@ -716,6 +795,11 @@ func main() {
                 Name: "cp",
                 Usage: "Copy REMOTE file to REMOTE",
                 Action: func(c *cli.Context) error {
+                    beforeErr := checkNSConnected(c)
+                    if beforeErr != nil {
+                        return beforeErr
+                    }
+
                     if c.Args().Len() != 2 {
                         return fmt.Errorf("error: provide remote paths to the two files")
                     }
@@ -735,6 +819,11 @@ func main() {
                 Name: "rm",
                 Usage: "Remove REMOTE file",
                 Action: func(c *cli.Context) error {
+                    beforeErr := checkNSConnected(c)
+                    if beforeErr != nil {
+                        return beforeErr
+                    }
+
                     if c.Args().Len() != 1 {
                         return fmt.Errorf("error: provide remote path to the file")
                     }
@@ -753,6 +842,11 @@ func main() {
                 Name: "rmdir",
                 Usage: "Remove REMOTE directory recursively",
                 Action: func(c *cli.Context) error {
+                    beforeErr := checkNSConnected(c)
+                    if beforeErr != nil {
+                        return beforeErr
+                    }
+
                     if c.Args().Len() != 1 {
                         return fmt.Errorf("error: provide remote path to the directory")
                     }
